@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suivi de Consommation Électrique</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        .container {
+            max-width: 700px;
+            margin: auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        label {
+            display: block;
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        input[type="number"], input[type="date"], button {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin: 5px 0 15px 0;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        canvas {
+            margin-top: 30px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #ecf0f1;
+            color: #2c3e50;
+        }
+        td {
+            background-color: #fdfdfd;
+        }
+        .summary p {
+            background-color: #e8f6fd;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #bde0fe;
+            font-size: 1.1em;
+        }
+        button.delete-btn {
+            background-color: #e74c3c;
+            padding: 5px 10px;
+            font-size: 0.9em;
+        }
+        button.delete-btn:hover {
+            background-color: #c0392b;
+        }
+        button.export-btn {
+            background-color: #2ecc71;
+            margin-top: 20px;
+        }
+        button.export-btn:hover {
+            background-color: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Suivi de Consommation Électrique</h1>
+
+        <label for="price">Prix par kWh (GBP):</label>
+        <input type="number" id="price" step="0.01" placeholder="Prix par kWh">
+
+        <label for="service-price">Prix de service par jour (GBP):</label>
+        <input type="number" id="service-price" step="0.01" placeholder="Prix de service par jour">
+
+        <label for="date">Date:</label>
+        <input type="date" id="date">
+
+        <label for="consumption">Lecture actuelle du compteur (kWh):</label>
+        <input type="number" id="consumption" placeholder="Lecture actuelle du compteur">
+
+        <button onclick="recordConsumption()">Enregistrer la Consommation</button>
+
+        <div class="summary">
+            <h2>Consommation Hebdomadaire</h2>
+            <p id="weekly-consumption">0.00 kWh - 0.00 GBP</p>
+
+            <h2>Consommation Mensuelle</h2>
+            <p id="monthly-consumption">0.00 kWh - 0.00 GBP</p>
+        </div>
+
+        <h2>Historique des Entrées</h2>
+        <table id="entries-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Consommation (kWh)</th>
+                    <th>Coût (GBP)</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+
+        <button onclick="exportToCSV()" class="export-btn">Exporter en CSV</button>
+
+        <canvas id="consumption-chart"></canvas>
+    </div>
+
+    <script>
+        // Constants for DOM elements
+        const priceInput = document.getElementById('price');
+        const servicePriceInput = document.getElementById('service-price');
+        const dateInput = document.getElementById('date');
+        const consumptionInput = document.getElementById('consumption');
+        const weeklyConsumptionElement = document.getElementById('weekly-consumption');
+        const monthlyConsumptionElement = document.getElementById('monthly-consumption');
+        const entriesTableBody = document.querySelector('#entries-table tbody');
+        const consumptionChartCanvas = document.getElementById('consumption-chart');
+
+        // Load data from localStorage
+        let dailyConsumptions = JSON.parse(localStorage.getItem('dailyConsumptions')) || [];
+        let pricePerKwh = parseFloat(localStorage.getItem('pricePerKwh')) || 0;
+        let servicePricePerDay = parseFloat(localStorage.getItem('servicePricePerDay')) || 0;
+        let entries = JSON.parse(localStorage.getItem('entries')) || [];
+
+        // Set default values for input fields
+        priceInput.value = pricePerKwh.toFixed(2); 
+        servicePriceInput.value = servicePricePerDay.toFixed(2); 
+        dateInput.value = new Date().toISOString().split('T')[0];
+
+        // Utility function to calculate cost
+        function calculateCost(kwh) {
+            const currentPricePerKwh = parseFloat(priceInput.value) || 0;
+            const currentServicePricePerDay = parseFloat(servicePriceInput.value) || 0;
+            return kwh * currentPricePerKwh + currentServicePricePerDay;
+        }
+
+        function recordConsumption() {
+            const currentDate = dateInput.value;
+            const newMeterReading = parseFloat(consumptionInput.value);
+
+            if (!currentDate) {
+                alert("Veuillez sélectionner une date.");
+                return;
+            }
+            if (isNaN(newMeterReading)) {
+                alert("Veuillez entrer une lecture de compteur valide.");
+                return;
+            }
+
+            pricePerKwh = parseFloat(priceInput.value) || 0;
+            servicePricePerDay = parseFloat(servicePriceInput.value) || 0;
+            localStorage.setItem('pricePerKwh', pricePerKwh.toString());
+            localStorage.setItem('servicePricePerDay', servicePricePerDay.toString());
+
+            let dailyUsageKwh;
+            let costOfUsage;
+
+            if (dailyConsumptions.length > 0) {
+                const previousMeterReading = dailyConsumptions[dailyConsumptions.length - 1];
+                if (newMeterReading < previousMeterReading) {
+                    alert(`La nouvelle lecture du compteur (${newMeterReading}) ne peut pas être inférieure à la précédente lecture enregistrée (${previousMeterReading}).`);
+                    return;
+                }
+                dailyUsageKwh = newMeterReading - previousMeterReading;
+            } else {
+                dailyUsageKwh = 0;
+            }
+
+            costOfUsage = calculateCost(dailyUsageKwh); 
+
+            dailyConsumptions.push(newMeterReading);
+            entries.push({
+                date: currentDate,
+                consumption: dailyUsageKwh, 
+                cost: costOfUsage
+            });
+
+            localStorage.setItem('dailyConsumptions', JSON.stringify(dailyConsumptions));
+            localStorage.setItem('entries', JSON.stringify(entries));
+            consumptionInput.value = ''; 
+            updateUI();
+        }
+
+        function deleteEntry(index) {
+            // Remove the entry and its corresponding meter reading
+            entries.splice(index, 1);
+            dailyConsumptions.splice(index, 1);
+
+            // Check if there is a subsequent entry (now at the same 'index')
+            if (entries.length > 0 && index < entries.length) {
+                const subsequentEntry = entries[index];
+                
+                if (index === 0) {
+                    // If the first entry was deleted, the new first entry's consumption is 0.
+                    subsequentEntry.consumption = 0;
+                    subsequentEntry.cost = calculateCost(0); // Cost will be service fee
+                } else {
+                    // If a non-first entry was deleted, recalculate consumption for the subsequent entry.
+                    // The 'previous' meter reading for entries[index] is now dailyConsumptions[index-1].
+                    // The 'current' meter reading for entries[index] is dailyConsumptions[index].
+                    if (dailyConsumptions[index - 1] !== undefined && dailyConsumptions[index] !== undefined) {
+                        subsequentEntry.consumption = dailyConsumptions[index] - dailyConsumptions[index - 1];
+                        // Ensure consumption isn't negative (e.g., if data was somehow corrupted or entered decreasingly before delete)
+                        if (subsequentEntry.consumption < 0) {
+                            console.warn("Calculated negative consumption after delete for entry at index " + index + ". Setting to 0.");
+                            subsequentEntry.consumption = 0; 
+                        }
+                        subsequentEntry.cost = calculateCost(subsequentEntry.consumption);
+                    } else {
+                        // This condition might occur if dailyConsumptions array is somehow not aligned.
+                        // As a fallback, or if it's now effectively the "first" available data point.
+                        console.error("Error recalculating consumption: missing meter readings for index", index, "after deletion. Setting consumption to 0.");
+                        subsequentEntry.consumption = 0;
+                        subsequentEntry.cost = calculateCost(0);
+                    }
+                }
+            } else if (entries.length === 0 && dailyConsumptions.length > 0) {
+                // Edge case: If all entries are deleted, but there was an initial meter reading.
+                // Clear dailyConsumptions to ensure the 'first entry' logic in recordConsumption works correctly next time.
+                console.log("All entries deleted. Clearing remaining dailyConsumptions.");
+                dailyConsumptions = [];
+            }
+            
+            localStorage.setItem('entries', JSON.stringify(entries));
+            localStorage.setItem('dailyConsumptions', JSON.stringify(dailyConsumptions));
+
+            updateUI();
+        }
+
+        function updateUI() {
+            updateWeeklyConsumption();
+            updateMonthlyConsumption();
+            updateChart();
+            updateEntriesTable();
+        }
+
+        function parseDateEntry(dateString) {
+            const parts = dateString.split('-');
+            return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        }
+
+        function updateWeeklyConsumption() {
+            const now = new Date();
+            now.setHours(23, 59, 59, 999); 
+
+            const oneWeekAgo = new Date(now.getTime()); 
+            oneWeekAgo.setDate(oneWeekAgo.getDate() - 6); 
+            oneWeekAgo.setHours(0, 0, 0, 0); 
+
+            const weeklyEntries = entries.filter(entry => {
+                const entryDate = parseDateEntry(entry.date);
+                return entryDate >= oneWeekAgo && entryDate <= now;
+            });
+
+            let weeklyKwh = weeklyEntries.reduce((sum, entry) => sum + entry.consumption, 0);
+            let weeklyCost = weeklyEntries.reduce((sum, entry) => sum + entry.cost, 0);
+
+            weeklyConsumptionElement.textContent = `${weeklyKwh.toFixed(2)} kWh - ${weeklyCost.toFixed(2)} GBP`;
+        }
+
+        function updateMonthlyConsumption() {
+            const now = new Date();
+            now.setHours(23, 59, 59, 999);
+
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            startOfMonth.setHours(0, 0, 0, 0);
+
+            const monthlyEntries = entries.filter(entry => {
+                const entryDate = parseDateEntry(entry.date);
+                return entryDate >= startOfMonth && entryDate <= now;
+            });
+
+            let monthlyKwh = monthlyEntries.reduce((sum, entry) => sum + entry.consumption, 0);
+            let monthlyCost = monthlyEntries.reduce((sum, entry) => sum + entry.cost, 0);
+
+            monthlyConsumptionElement.textContent = `${monthlyKwh.toFixed(2)} kWh - ${monthlyCost.toFixed(2)} GBP`;
+        }
+
+        function updateChart() {
+            const ctx = consumptionChartCanvas.getContext('2d');
+            if (window.consumptionChart instanceof Chart) {
+                window.consumptionChart.destroy();
+            }
+
+            window.consumptionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: entries.map(entry => entry.date),
+                    datasets: [{
+                        label: 'Consommation Quotidienne (kWh)',
+                        data: entries.map(entry => entry.consumption),
+                        backgroundColor: 'rgba(54, 162, 235, 0.6)', 
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Coût Quotidien (GBP)',
+                        data: entries.map(entry => entry.cost),
+                        type: 'line', 
+                        backgroundColor: 'rgba(255, 99, 132, 0.6)', 
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        yAxisID: 'y-axis-cost', 
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: { 
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'kWh'
+                            }
+                        },
+                        'y-axis-cost': { 
+                            position: 'right',
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'GBP'
+                            },
+                            grid: {
+                                drawOnChartArea: false, 
+                            },
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateEntriesTable() {
+            entriesTableBody.innerHTML = ''; 
+
+            entries.forEach((entry, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${entry.date}</td>
+                    <td>${entry.consumption.toFixed(2)}</td>
+                    <td>${entry.cost.toFixed(2)}</td>
+                    <td><button class="delete-btn" onclick="deleteEntry(${index})">Supprimer</button></td>
+                `;
+                entriesTableBody.appendChild(row);
+            });
+        }
+
+        function exportToCSV() {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Date,Consommation (kWh),Coût (GBP)\r\n"; 
+            entries.forEach(entry => {
+                const row = `${entry.date},${entry.consumption.toFixed(2)},${entry.cost.toFixed(2)}`;
+                csvContent += row + "\r\n";
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "consumption_data.csv");
+            document.body.appendChild(link); 
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Initial update on page load
+        if (entries.length > 0 || dailyConsumptions.length > 0) {
+            updateUI();
+        } else {
+            weeklyConsumptionElement.textContent = `0.00 kWh - 0.00 GBP`;
+            monthlyConsumptionElement.textContent = `0.00 kWh - 0.00 GBP`;
+            updateChart(); 
+        }
+    </script>
+</body>
+</html>
