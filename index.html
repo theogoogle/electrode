@@ -6,10 +6,20 @@
     <title>Suivi de Consommation Électrique</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://apis.google.com/js/api.js" async defer></script>
 </head>
 <body>
     <div class="container">
         <h1>Suivi de Consommation Électrique</h1>
+
+        <div id="g_id_onload"
+             data-client_id="YOUR_GOOGLE_CLIENT_ID"
+             data-callback="handleCredentialResponse">
+        </div>
+        <button id="google-signin-button">Sign in with Google</button>
+        <button id="select-spreadsheet-button" style="display:none;">Select Spreadsheet</button>
+        <p id="selected-spreadsheet-info"></p>
 
         <label for="price">Prix par kWh (GBP):</label>
         <input type="number" id="price" step="0.01" placeholder="Prix par kWh">
